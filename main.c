@@ -91,15 +91,19 @@ void print(const char *s) {
 				switch(vars[i]->type){
 					case INT:
 						printf("%d\n", vars[i]->value.intValue);
+						return; // Added so the loop does not run after the variable and the value is found. 
 						break;
 					case FLOAT:
 						printf("%lf\n", vars[i]->value.floatValue);
+						return;
 						break;
 					case STRING:
 						printf("%s\n", vars[i]->value.stringValue);
+						return;
 						break;
 					case CHAR:
 						printf("%c\n", vars[i]->value.charValue[0]);
+						return;
 						break;
 					default:
 						break;
@@ -142,37 +146,45 @@ OperationType parse_command(const char *cmd) {
 
 // Parse an assignment (supports optional single '+')
 void parse_assignment(const char *cmd, AssignmentInfo *info) {
-	memset(info, 0, sizeof(*info));
-	char cleaned[256];
-	remove_whitespace(cmd, cleaned);
-	const char *eq = strchr(cleaned, '=');
-	if (!eq) return;
-	size_t lhs_len = (size_t)(eq - cleaned);
-	if (lhs_len == 0 || lhs_len >= sizeof(info->lhs)) return;
-	strncpy(info->lhs, cleaned, lhs_len);
-	info->lhs[lhs_len] = '\0';
-	const char *rhs_start = eq + 1;
-	if (*rhs_start == '\0') return;
-	strncpy(info->rhs, rhs_start, sizeof(info->rhs) - 1);
-	info->rhs[sizeof(info->rhs) - 1] = '\0';
-	const char *plus = strchr(info->rhs, '+');
-	if (plus) {
-		size_t a_len = (size_t)(plus - info->rhs);
-		if (a_len == 0 || a_len >= sizeof(info->arg1)) return;
-		strncpy(info->arg1, info->rhs, a_len);
-		info->arg1[a_len] = '\0';
-		const char *second = plus + 1;
-		if (*second == '\0') return;
-		strncpy(info->arg2, second, sizeof(info->arg2) - 1);
-		info->arg2[sizeof(info->arg2) - 1] = '\0';
-		info->op = '+';
-		info->arg_count = 2;
-	} else {
-		strncpy(info->arg1, info->rhs, sizeof(info->arg1) - 1);
-		info->arg1[sizeof(info->arg1) - 1] = '\0';
-		info->arg_count = 1;
-	}
-	info->valid = 1;
+    memset(info, 0, sizeof(*info));
+    char cleaned[256];
+    remove_whitespace(cmd, cleaned);
+    const char *eq = strchr(cleaned, '=');
+    if (!eq) return;
+    size_t lhs_len = (size_t)(eq - cleaned);
+    if (lhs_len == 0 || lhs_len >= sizeof(info->lhs)) return;
+    strncpy(info->lhs, cleaned, lhs_len);
+    info->lhs[lhs_len] = '\0';
+    const char *rhs_start = eq + 1;
+    if (*rhs_start == '\0') return;
+    strncpy(info->rhs, rhs_start, sizeof(info->rhs) - 1);
+    info->rhs[sizeof(info->rhs) - 1] = '\0';
+    // Look for operator: +, -, *, /
+    const char *op_ptr = NULL;
+    char ops[] = "+-*/";
+    for (int i = 0; ops[i]; i++) {
+        op_ptr = strchr(info->rhs, ops[i]);
+        if (op_ptr) {
+            info->op = ops[i];
+            break;
+        }
+    }
+    if (op_ptr) {
+        size_t a_len = (size_t)(op_ptr - info->rhs);
+        if (a_len == 0 || a_len >= sizeof(info->arg1)) return;
+        strncpy(info->arg1, info->rhs, a_len);
+        info->arg1[a_len] = '\0';
+        const char *second = op_ptr + 1;
+        if (*second == '\0') return;
+        strncpy(info->arg2, second, sizeof(info->arg2) - 1);
+        info->arg2[sizeof(info->arg2) - 1] = '\0';
+        info->arg_count = 2;
+    } else {
+        strncpy(info->arg1, info->rhs, sizeof(info->arg1) - 1);
+        info->arg1[sizeof(info->arg1) - 1] = '\0';
+        info->arg_count = 1;
+    }
+    info->valid = 1;
 }
 
 void parse_print(const char *cmd, PrintInfo *pi) {
@@ -351,12 +363,8 @@ int doesVarExist(Variable *var){
 			printf("Var exists at index %d\n", i);
 			return i; // Returns then index of the var;
 		}
-		else{
-			printf("Var does not exist\n");
-			return -1;
-		}
 	}
-	return -2; // Array full
+	return -1; // Array full
 }
 
 void addVar(Variable *var){
@@ -523,11 +531,74 @@ int main() {
 											addVar(var);
 										} else if (arg1Type == INT && arg2Type == INT) {
 											var->type = INT;
-											var->value.intValue = getVarInt(ai.arg1) + getVarInt(ai.arg2);
+											var->value.intValue = (long)(getVarInt(ai.arg1) + getVarInt(ai.arg2));
 											printf("Result (int add): %ld\n", var->value.intValue);
 											addVar(var);
 										} else {
 											printf("Error: Unsupported types for '+' operator\n");
+										}
+										break;
+									case '*':
+										if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
+											double left = (arg1Type == INT) ? getVarInt(ai.arg1) : getVarFloat(ai.arg1);
+											double right = (arg2Type == INT) ? getVarInt(ai.arg2) : getVarFloat(ai.arg2);
+											var->type =	 FLOAT;
+											var->value.floatValue = left * right;
+											printf("Result (numeric multiply): %f\n", var->value.floatValue);
+											addVar(var);
+										} else if (arg1Type == INT && arg2Type == INT) {
+											var->type = INT;
+											var->value.intValue = (long)(getVarInt(ai.arg1) * getVarInt(ai.arg2));
+											printf("Result (int multiply): %ld\n", var->value.intValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '*' operator\n");
+										}
+										break;
+									case '-':
+										if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
+											double left = (arg1Type == INT) ? getVarInt(ai.arg1) : getVarFloat(ai.arg1);
+											double right = (arg2Type == INT) ? getVarInt(ai.arg2) : getVarFloat(ai.arg2);
+											var->type =	 FLOAT;
+											var->value.floatValue = left - right;
+											printf("Result (numeric subtract): %f\n", var->value.floatValue);
+											addVar(var);
+										} else if (arg1Type == INT && arg2Type == INT) {
+											var->type = INT;
+											var->value.intValue = (long)(getVarInt(ai.arg1) - getVarInt(ai.arg2));
+											printf("Result (int subtract): %ld\n", var->value.intValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '-' operator\n");
+										}
+										break;
+									case '/':
+										if(arg1Type == INT && arg2Type == INT){
+											int left = getVarInt(ai.arg1);
+											int right = getVarInt(ai.arg2);
+											if(right != 0){
+												var->type = INT;
+												var->value.intValue = left / right;
+												printf("Result (int divide): %ld\n", var->value.intValue);
+												addVar(var);
+											}
+											else{
+												printf("Error: Division by zero\n");
+											}
+										}
+										else if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
+											double left = (arg1Type == INT) ? getVarInt(ai.arg1) : getVarFloat(ai.arg1);
+											double right = (arg2Type == INT) ? getVarInt(ai.arg2) : getVarFloat(ai.arg2);
+											if (right != 0) {
+												var->type =	 FLOAT;
+												var->value.floatValue = left / right;
+												printf("Result (numeric divide): %f\n", var->value.floatValue);
+												addVar(var);
+											} else {
+												printf("Error: Division by zero\n");
+											}
+										} else {
+											printf("Error: Unsupported types for '/' operator\n");
 										}
 										break;
 									default:
@@ -572,5 +643,5 @@ int main() {
 	}
 
 }
-}
+	}
 }
