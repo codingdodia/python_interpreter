@@ -8,6 +8,8 @@
 #define VARS_MAX 100
 int varCount = 0;
 
+// Union because it should only hold one of the values at a time
+
 
 typedef union{
     long intValue;
@@ -22,9 +24,9 @@ typedef enum{
 	FLOAT,
 	STRING,
 	CHAR,
+	LIST,
 	UNDEFINED
 } VarType;
-
 
 typedef enum {
 	ASSIGNMENT,
@@ -52,10 +54,24 @@ typedef struct {
     char name[64 + 1];
     VarType type;
 	VarValue value;
+	struct listNode *next;
+
 } Variable;
 
 Variable *vars[100];
 
+
+typedef struct{
+	union{
+		Variable *var;
+		long intValue;
+		double floatValue;
+		char charValue[1 + 1];
+		char stringValue[64 + 1];
+	} value; // The list can hold variables of any type
+	int index; // Index in the list, used for getting individual elements
+	struct listNode *next;
+} listNode;
 
 typedef struct {
 	char arg1[64]; // list name
@@ -63,13 +79,7 @@ typedef struct {
 	int valid;
 } AppendInfo;
 
-void print_ascii(const char *str) {
-    for (int i = 0; str[i] != '\0'; i++) {
-        printf("'%c': %d\n", str[i], (unsigned char)str[i]);
-    }
-}
-
-void print(const char *s) {
+void print(const char *s) { // Takes the char as input and then parses it to see if its a string or variablable.
     if(s == NULL) {
         printf("(null)\n");
         return;
@@ -105,6 +115,26 @@ void print(const char *s) {
 						printf("%c\n", vars[i]->value.charValue[0]);
 						return;
 						break;
+					case LIST:
+						while(vars[i]->next != NULL){
+							vars[i] = vars[i]->next;
+							switch(vars[i]->type){
+								case INT:
+									printf("%d\n", vars[i]->value.intValue);
+									break;
+								case FLOAT:
+									printf("%lf\n", vars[i]->value.floatValue);
+									break;
+								case STRING:
+									printf("%s\n", vars[i]->value.stringValue);
+									break;
+								case CHAR:
+									printf("%c\n", vars[i]->value.charValue[0]);
+									break;
+								default:
+									break;
+							}
+						}
 					default:
 						break;
 				}
@@ -159,6 +189,15 @@ void parse_assignment(const char *cmd, AssignmentInfo *info) {
     if (*rhs_start == '\0') return;
     strncpy(info->rhs, rhs_start, sizeof(info->rhs) - 1);
     info->rhs[sizeof(info->rhs) - 1] = '\0';
+    // Check for list assignment
+    if (strchr(info->rhs, '[')) {
+        info->op = '['; // Use op to indicate list assignment
+        info->arg_count = 1;
+        strncpy(info->arg1, info->rhs, sizeof(info->arg1) - 1);
+        info->arg1[sizeof(info->arg1) - 1] = '\0';
+        info->valid = 1;
+        return;
+    }
     // Look for operator: +, -, *, /
     const char *op_ptr = NULL;
     char ops[] = "+-*/";
@@ -243,6 +282,7 @@ int read_command(char *buffer) {
 	}
 	return idx;
 }
+// Checks the type of var if it exists. Used for arguments inputed
 int findVarType(const char *rhs){
 	printf("Finding type of: %s\n", rhs);	
     if(rhs == NULL || *rhs == '\0') return -1;
@@ -276,6 +316,7 @@ int findVarType(const char *rhs){
     }
     return -1; // More than one dot is invalid
 }
+// Gets the var type in from the variable list if it exists
 VarType getVarType(const char *varName){
 	for(int i = 0; i < VARS_MAX; i++){
 		if(vars[i] == NULL) break;
@@ -289,6 +330,7 @@ VarType getVarType(const char *varName){
 	return UNDEFINED; // Not found
 }
 
+// Gets the int value of a variable if it exists and is of type INT
 long getVarInt(const char *varName){
 	long outValue = 0;
 	for(int i = 0; i < VARS_MAX; i++){
@@ -305,7 +347,7 @@ long getVarInt(const char *varName){
 	}
 	return -2; // Not found
 }
-
+// Gets the float value of a variable if it exists and is of type FLOAT
 double getVarFloat(const char *varName){
 	double outValue = 0.0;
 	for(int i = 0; i < VARS_MAX; i++){
@@ -323,6 +365,7 @@ double getVarFloat(const char *varName){
 	return -2.0; // Not found
 }
 
+// Gets the string value of a variable if it exists and is of type STRING
 char* getVarString(const char *varName){
 	for(int i = 0; i < VARS_MAX; i++){
 		if(vars[i] == NULL) break;
@@ -338,6 +381,7 @@ char* getVarString(const char *varName){
 	return NULL; // Not found
 }
 
+// Gets the char value of a variable if it exists and is of type CHAR
 char *getVarChar(const char *varName){
 	for(int i = 0; i < VARS_MAX; i++){
 		if(vars[i] == NULL) break;
@@ -425,7 +469,16 @@ int main() {
 						strncpy(var->name, ai.lhs, sizeof(var->name) - 1);
 						var->name[sizeof(var->name) - 1] = '\0';
 
-						if (ai.arg_count == 1) {
+						if (ai.op == '[') {
+							printf("List assignment detected: %s = %s\n", ai.lhs, ai.rhs);
+							// Check for empty list
+							if (strcmp(ai.rhs, "[]") == 0) {
+								printf("Empty list initialized: %s\n", ai.lhs);
+								addVar(var);
+								var->type = LIST;
+							}
+						}
+						else if (ai.arg_count == 1) {
 							printf("ARGS: '%s'\n", ai.arg1);
                             switch (findVarType(ai.arg1)){
 							case 0:
@@ -539,17 +592,17 @@ int main() {
 										}
 										break;
 									case '*':
-										if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
+										if (arg1Type == INT && arg2Type == INT) {
+											var->type = INT;
+											var->value.intValue = (long)(getVarInt(ai.arg1) * getVarInt(ai.arg2));
+											printf("Result (int multiply): %ld\n", var->value.intValue);
+											addVar(var);
+										} else if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
 											double left = (arg1Type == INT) ? getVarInt(ai.arg1) : getVarFloat(ai.arg1);
 											double right = (arg2Type == INT) ? getVarInt(ai.arg2) : getVarFloat(ai.arg2);
 											var->type =	 FLOAT;
 											var->value.floatValue = left * right;
 											printf("Result (numeric multiply): %f\n", var->value.floatValue);
-											addVar(var);
-										} else if (arg1Type == INT && arg2Type == INT) {
-											var->type = INT;
-											var->value.intValue = (long)(getVarInt(ai.arg1) * getVarInt(ai.arg2));
-											printf("Result (int multiply): %ld\n", var->value.intValue);
 											addVar(var);
 										} else {
 											printf("Error: Unsupported types for '*' operator\n");
@@ -604,14 +657,231 @@ int main() {
 									default:
 										printf("Unsupported operator '%c' for variable types\n", ai.op);
 										break;
-								}	
-							} else {
-								printf("(parse error)\n");
+								}
+
+							} else if(arg1Type != UNDEFINED && arg2Type == UNDEFINED) {
+								double left = getVarInt(ai.arg1);
+								int right = findVarType(ai.arg2);
+
+
+								switch(ai.op) {
+									
+									
+									case '+':
+										if (arg1Type == INT) {	
+											if(right == 1) {
+												right = atoi(ai.arg2);
+												var->type = INT;
+												var->value.intValue = (long)(left + right);
+											} else if (right == 2) {
+												right = atof(ai.arg2);
+												var->type = FLOAT;
+												var->value.floatValue = left + right;
+											} else {
+												printf("Error: Unsupported type for second argument\n");
+												break;
+											}
+											addVar(var);
+										} else if (arg1Type == FLOAT) {
+											var->type = FLOAT;
+											var->value.floatValue = getVarFloat(ai.arg1) + atof(ai.arg2);
+											printf("Result (float add): %f\n", var->value.floatValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '+' operator\n");
+										}
+										break;
+									case '*':
+										if (arg1Type == INT) {	
+											if(right == 1) {
+												right = atoi(ai.arg2);
+												var->type = INT;
+												var->value.intValue = (long)(left * right);
+											} else if (right == 2) {
+												right = atof(ai.arg2);
+												var->type = FLOAT;
+												var->value.floatValue = left * right;
+											} else {
+												printf("Error: Unsupported type for second argument\n");
+												break;
+											}
+											addVar(var);
+										} else if (arg1Type == FLOAT) {
+											var->type = FLOAT;
+											var->value.floatValue = getVarFloat(ai.arg1) * atof(ai.arg2);
+											printf("Result (float add): %f\n", var->value.floatValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '+' operator\n");
+										}
+										break;
+									case '-':
+										if (arg1Type == INT) {	
+											if(right == 1) {
+												right = atoi(ai.arg2);
+												var->type = INT;
+												var->value.intValue = (long)(left - right);
+											} else if (right == 2) {
+												right = atof(ai.arg2);
+												var->type = FLOAT;
+												var->value.floatValue = left - right;
+											} else {
+												printf("Error: Unsupported type for second argument\n");
+												break;
+											}
+											addVar(var);
+										} else if (arg1Type == FLOAT) {
+											var->type = FLOAT;
+											var->value.floatValue = getVarFloat(ai.arg1) - atof(ai.arg2);
+											printf("Result (float subtract): %f\n", var->value.floatValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '+' operator\n");
+										}
+									case '/':
+										if (arg1Type == INT) {	
+											if(right == 1) {
+												right = atoi(ai.arg2);
+												var->type = INT;
+												var->value.intValue = (long)(left / right);
+											} else if (right == 2) {
+												right = atof(ai.arg2);
+												var->type = FLOAT;
+												var->value.floatValue = left / right;
+											} else {
+												printf("Error: Unsupported type for second argument\n");
+												break;
+											}
+											addVar(var);
+										} else if (arg1Type == FLOAT) {
+											var->type = FLOAT;
+											var->value.floatValue = getVarFloat(ai.arg1) / atof(ai.arg2);
+											printf("Result (float divide): %f\n", var->value.floatValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '/' operator\n");
+										}
+										break;
+									default:
+										printf("Unsupported operator '%c' for variable types\n", ai.op);
+										break;
+									}
+								} 
+								else if(arg1Type == UNDEFINED && arg2Type != UNDEFINED) {
+									switch(ai.op) {
+										double right = getVarInt(ai.arg2);
+										double left = findVarType(ai.arg1);
+										case '+':
+											if (arg2Type == INT) {	
+												if(left == 1) {
+													left = atoi(ai.arg1);
+													var->type = INT;
+													var->value.intValue = (long)(left + right);
+												} else if (left == 2) {
+													left = atof(ai.arg1);
+													var->type = FLOAT;
+													var->value.floatValue = left + right;
+												} else {
+													printf("Error: Unsupported type for first argument\n");
+													break;
+												}
+												addVar(var);
+											} else if (arg2Type == FLOAT) {
+												var->type = FLOAT;
+												var->value.floatValue = atof(ai.arg1) + getVarFloat(ai.arg2);
+												printf("Result (float add): %f\n", var->value.floatValue);
+												addVar(var);
+											} else {
+												printf("Error: Unsupported types for '+' operator\n");
+											}
+											break;
+										case '*':
+											if (arg2Type == INT) {	
+												if(left == 1) {
+													left = atoi(ai.arg1);
+													var->type = INT;
+													var->value.intValue = (long)(left * right);
+												} else if (left == 2) {	
+													left = atof(ai.arg1);
+													var->type = FLOAT;
+													var->value.floatValue = left * right;
+												} else {
+													printf("Error: Unsupported type for first argument\n");
+													break;
+												}
+												addVar(var);
+											} else if (arg2Type == FLOAT) {
+												var->type = FLOAT;
+												var->value.floatValue = atof(ai.arg1) * getVarFloat(ai.arg2);
+												printf("Result (float multiply): %f\n", var->value.floatValue);
+												addVar(var);
+											} else {
+												printf("Error: Unsupported types for '*' operator\n");
+											}
+											break;
+										case '-':
+											if (arg2Type == INT) {	
+												if(left == 1) {
+													left = atoi(ai.arg1);
+													var->type = INT;
+													var->value.intValue = (long)(left - right);
+												} else if (left == 2) {
+													left = atof(ai.arg1);
+													var->type = FLOAT;
+													var->value.floatValue = left - right;
+												} else {
+													printf("Error: Unsupported type for first argument\n");
+													break;
+												}
+												addVar(var);
+											} else if (arg2Type == FLOAT) {
+												var->type = FLOAT;
+												var->value.floatValue = atof(ai.arg1) - getVarFloat(ai.arg2);
+												printf("Result (float subtract): %f\n", var->value.floatValue);
+												addVar(var);
+											} else {
+												printf("Error: Unsupported types for '-' operator\n");
+											}
+											break;
+										case '/':
+											if (arg2Type == INT) {	
+												if(left == 1) {
+													left = atoi(ai.arg1);
+													var->type = INT;
+													var->value.intValue = (long)(left / right);
+												} else if (left == 2) {
+													left = atof(ai.arg1);
+													var->type = FLOAT;
+													var->value.floatValue = left / right;
+												} else {
+													printf("Error: Unsupported type for first argument\n");
+													break;
+												}
+												addVar(var);
+											} else if (arg2Type == FLOAT) {
+												var->type = FLOAT;
+												var->value.floatValue = atof(ai.arg1) / getVarFloat(ai.arg2);
+												printf("Result (float divide): %f\n", var->value.floatValue);
+												addVar(var);
+											} else {
+												printf("Error: Unsupported types for '/' operator\n");
+											}
+											break;
+										default:
+											printf("Unsupported operator '%c' for variable types\n", ai.op);
+											break;
+									}
+								}
+								else {
+									printf("(parse error)\n");
+								}
 							}
 						}
 
 					}
 				break;
+				
+			
 			
 			case PRINT:
 				{
@@ -643,5 +913,4 @@ int main() {
 	}
 
 }
-	}
 }
