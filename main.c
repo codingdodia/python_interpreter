@@ -1,8 +1,30 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
 
 #define MAX_CMD_LEN 100
+#define VARS_MAX 100
+int varCount = 0;
+
+
+typedef union{
+    long intValue;
+    double floatValue;
+    char charValue[1 + 1];
+    char stringValue[64 + 1];
+} VarValue;
+
+typedef enum{
+	VARIABLE,
+	INT,
+	FLOAT,
+	STRING,
+	CHAR,
+	UNDEFINED
+} VarType;
+
 
 typedef enum {
 	ASSIGNMENT,
@@ -27,11 +49,66 @@ typedef struct {
 } PrintInfo;
 
 typedef struct {
+    char name[64 + 1];
+    VarType type;
+	VarValue value;
+} Variable;
+
+Variable *vars[100];
+
+
+typedef struct {
 	char arg1[64]; // list name
 	char arg2[64]; // item to append
 	int valid;
 } AppendInfo;
 
+void print_ascii(const char *str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        printf("'%c': %d\n", str[i], (unsigned char)str[i]);
+    }
+}
+
+void print(const char *s) {
+    if(s == NULL) {
+        printf("(null)\n");
+        return;
+    }
+    const char print;
+    if(strncmp(s, "\"", 1) == 0) {
+        for(int i = 0; i < strlen(s); i++) {
+            if(s[i] == '\"') continue;
+            printf("%c", s[i]);
+        }
+        printf("\n");
+        return;
+    } else {
+		printf("Looking for variable: %s\n", s);
+		for(int i = 0; i < VARS_MAX; i++){
+			if(vars[i] == NULL) break;
+			printf("Comparing with: %s\n", vars[i]->name);
+			if (vars[i] && strcmp(vars[i]->name, s) == 0) {
+				switch(vars[i]->type){
+					case INT:
+						printf("%d\n", vars[i]->value.intValue);
+						break;
+					case FLOAT:
+						printf("%lf\n", vars[i]->value.floatValue);
+						break;
+					case STRING:
+						printf("%s\n", vars[i]->value.stringValue);
+						break;
+					case CHAR:
+						printf("%c\n", vars[i]->value.charValue[0]);
+						break;
+					default:
+						break;
+				}
+			}
+		}
+        return;
+    }
+}
 
 // Remove all whitespace from a string
 void remove_whitespace(const char *src, char *dest) {
@@ -154,9 +231,168 @@ int read_command(char *buffer) {
 	}
 	return idx;
 }
+int findVarType(const char *rhs){
+	printf("Finding type of: %s\n", rhs);	
+    if(rhs == NULL || *rhs == '\0') return -1;
+    if(rhs[0] == '\"' && rhs[strlen(rhs) - 1] == '\"'){
+		printf("String detected\n");
+        return 3; // String
+    }
+    if(strlen(rhs) == 3 && rhs[0] == '\'' && rhs[2] == '\''){
+		printf("Char detected\n");
+        return 4; // Char
+    }
+
+    int dotCount = 0;
+    for(int i = 0; i < strlen(rhs); i++) {
+       if (strncmp(&rhs[i], ".", 1) == 0) {
+           dotCount++;
+       }
+    }
+    if(dotCount == 0){
+		printf("Integer detected\n");
+		return 1;
+	} // Integer
+    else if(dotCount == 1){
+		printf("Float detected\n");
+		return 2;
+	}// Float
+
+	if(!isdigit(rhs)){
+		printf("Another Variable detected\n");
+        return 0;
+    }
+    return -1; // More than one dot is invalid
+}
+VarType getVarType(const char *varName){
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL) break;
+		printf("Comparing with: %s\n", vars[i]->name);
+		if(strcmp(vars[i]->name, varName) == 0){
+			printf("Variable %s found with type %d\n", varName, vars[i]->type);
+			return vars[i]->type;
+		}
+	}
+	printf("Variable %s not found\n", varName);
+	return UNDEFINED; // Not found
+}
+
+long getVarInt(const char *varName){
+	long outValue = 0;
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL) break;
+		if(strcmp(vars[i]->name, varName) == 0){
+			if(vars[i]->type == INT){
+				outValue = vars[i]->value.intValue;
+				return outValue; // Success
+			}
+			else{
+				return -1; // Type mismatch
+			}
+		}
+	}
+	return -2; // Not found
+}
+
+double getVarFloat(const char *varName){
+	double outValue = 0.0;
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL) break;
+		if(strcmp(vars[i]->name, varName) == 0){
+			if(vars[i]->type == FLOAT){
+				outValue = vars[i]->value.floatValue;
+				return outValue; // Success
+			}
+			else{
+				return -1.0; // Type mismatch
+			}
+		}
+	}
+	return -2.0; // Not found
+}
+
+char* getVarString(const char *varName){
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL) break;
+		if(strcmp(vars[i]->name, varName) == 0){
+			if(vars[i]->type == STRING){
+				return vars[i]->value.stringValue; // Success
+			}
+			else{
+				return NULL; // Type mismatch
+			}
+		}
+	}
+	return NULL; // Not found
+}
+
+char *getVarChar(const char *varName){
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL) break;
+		if(strcmp(vars[i]->name, varName) == 0){
+			if(vars[i]->type == CHAR){
+				return vars[i]->value.charValue; // Success
+			}
+			else{
+				return NULL; // Type mismatch
+			}
+		}
+	}
+	return NULL; // Not found
+}
+
+int doesVarExist(Variable *var){
+	for(int i = 0; i < VARS_MAX; i++){
+		if(vars[i] == NULL){
+			printf("Var is NULL\n");
+			return -2;
+		}
+		if(strcmp(var->name, vars[i]->name) == 0){
+			printf("Var exists at index %d\n", i);
+			return i; // Returns then index of the var;
+		}
+		else{
+			printf("Var does not exist\n");
+			return -1;
+		}
+	}
+	return -2; // Array full
+}
+
+void addVar(Variable *var){
+	int check = doesVarExist(var);
+	if(check <= -1){ // Does not exist or array full
+		vars[0 + varCount] = var;
+		printf("Adding var at index %d\n", 0 + varCount);
+		varCount++; 
+		
+	}
+	else{ // Exists update at the current index
+		vars[check] = var;
+		printf("Updating var at index %d\n", check);
+		
+	}
+}
+
+bool is_int(const char *s) {
+	if (*s == '-' || *s == '+') s++; // Skip sign
+	if (!*s) return 0; // Empty string after sign
+	while (*s) {
+		if (!isdigit((unsigned char)*s)) return false;
+		s++;
+	}
+	return true;
+}
+
+bool is_float(const char *s) {
+    char *endptr;
+    strtod(s, &endptr);
+    return *endptr == '\0' && endptr != s;
+}
 
 int main() {
 	char cmd[MAX_CMD_LEN + 1];
+	
 	while (1) {
 		printf(">>> ");
 		fflush(stdout);
@@ -177,27 +413,145 @@ int main() {
 					parse_assignment(cmd, &ai);
 					if (ai.valid) {
 						printf("[ASSIGNMENT] LHS='%s' RHS='%s' ", ai.lhs, ai.rhs);
+                        Variable *var = (Variable *)malloc(sizeof(Variable));
+						strncpy(var->name, ai.lhs, sizeof(var->name) - 1);
+						var->name[sizeof(var->name) - 1] = '\0';
+
 						if (ai.arg_count == 1) {
 							printf("ARGS: '%s'\n", ai.arg1);
-						} else if (ai.arg_count == 2) {
+                            switch (findVarType(ai.arg1)){
+							case 0:
+								printf("Variable assignment not implemented yet.\n");
+								break;
+                            case 1:
+                                var->value.intValue = atoi(ai.arg1);
+								var->type = INT;
+								printf("Integer assigned: %ld\n", var->value.intValue);
+                                break;
+							case 2:
+								var->value.floatValue = atof(ai.arg1);
+								var->type = FLOAT;
+								printf("Float assigned: %f\n", var->value.floatValue);
+								break;
+							case 3:
+								var->type = STRING;
+								// Remove quotes from arg1
+								{
+									size_t len = strlen(ai.arg1);
+									if (len >= 2 && ai.arg1[0] == '"' && ai.arg1[len-1] == '"') {
+										strncpy(var->value.stringValue, ai.arg1+1, len-2);
+										var->value.stringValue[len-2] = '\0';
+									} 
+									else {
+										strncpy(var->value.stringValue, ai.arg1, sizeof(var->value.stringValue) - 1);
+										var->value.stringValue[sizeof(var->value.stringValue) - 1] = '\0';
+									}
+								}
+								printf("String assigned: %s\n", var->value.stringValue);
+								break;
+							case 4:
+								var->type = CHAR;
+								var->value.charValue[0] = ai.arg1[1]; // middle character
+								var->value.charValue[1] = '\0';
+								printf("Char assigned: %s\n", var->value.charValue);
+								break;
+                            
+                            default:
+								printf("Unrecognized type.\n");
+                                break;
+                            }
+
+							addVar(var);
+						} 
+						
+						else if (ai.arg_count == 2) {
 							printf("ARGS: '%s','%s' OP='%c'\n", ai.arg1, ai.arg2, ai.op);
-						} else {
-							printf("(parse error)\n");
+							// Handle two-argument assignments with an operator
+							bool arg1_is_int = is_int(ai.arg1);
+							bool arg2_is_int = is_int(ai.arg2);
+							bool arg1_is_float = !arg1_is_int && is_float(ai.arg1);
+							bool arg2_is_float = !arg2_is_int && is_float(ai.arg2);
+							if ((arg1_is_int || arg1_is_float) && (arg2_is_int || arg2_is_float)) {
+								// Both are numbers
+								double left = arg1_is_int ? atoi(ai.arg1) : atof(ai.arg1);
+								double right = arg2_is_int ? atoi(ai.arg2) : atof(ai.arg2);
+								switch (ai.op) {
+									case '+':
+										var->value.floatValue = left + right;
+										break;
+									case '-':
+										var->value.floatValue = left - right;
+										break;
+									case '*':
+										var->value.floatValue = left * right;
+										break;
+									case '/':
+										if (right != 0) {
+											var->value.floatValue = left / right;
+										} else {
+											printf("Error: Division by zero\n");
+										}
+										break;
+									default:
+										printf("Unsupported operator '%c'\n", ai.op);
+										break;
+								}
+								// If both are int and operator is not division, store as int
+								if (arg1_is_int && arg2_is_int && ai.op != '/') {
+									var->type = INT;
+									var->value.intValue = (long)var->value.floatValue;
+									printf("Result (int): %ld\n", var->value.intValue);
+								} else {
+									var->type = FLOAT;
+									printf("Result (float): %f\n", var->value.floatValue);
+								}
+								addVar(var);
 						}
-					} else {
-						printf("[ASSIGNMENT] (failed to parse details)\n");
+						
+						else {
+							VarType arg1Type = getVarType(ai.arg1);
+							VarType arg2Type = getVarType(ai.arg2);
+							if (arg1Type != UNDEFINED && arg2Type != UNDEFINED) {
+								switch(ai.op) {
+									case '+':
+										if ((arg1Type == INT || arg1Type == FLOAT) && (arg2Type == INT || arg2Type == FLOAT)) {
+											double left = (arg1Type == INT) ? getVarInt(ai.arg1) : getVarFloat(ai.arg1);
+											double right = (arg2Type == INT) ? getVarInt(ai.arg2) : getVarFloat(ai.arg2);
+											var->type =	 FLOAT;
+											var->value.floatValue = left + right;
+											printf("Result (numeric add): %f\n", var->value.floatValue);
+											addVar(var);
+										} else if (arg1Type == INT && arg2Type == INT) {
+											var->type = INT;
+											var->value.intValue = getVarInt(ai.arg1) + getVarInt(ai.arg2);
+											printf("Result (int add): %ld\n", var->value.intValue);
+											addVar(var);
+										} else {
+											printf("Error: Unsupported types for '+' operator\n");
+										}
+										break;
+									default:
+										printf("Unsupported operator '%c' for variable types\n", ai.op);
+										break;
+								}	
+							} else {
+								printf("(parse error)\n");
+							}
+						}
+
 					}
-				}
 				break;
+			
 			case PRINT:
 				{
 					PrintInfo pi; 
 					parse_print(cmd, &pi);
 					if (pi.valid) {
-						printf("[PRINT] VAR='%s'\n", pi.var);
+						//printf("[PRINT] VAR='%s'\n", pi.var);
 					} else {
 						printf("[PRINT] (parse error)\n");
 					}
+                    print(pi.var);
 				}
 				break;
 			case APPEND:
@@ -216,5 +570,7 @@ int main() {
 				break;
 		}
 	}
-	return 0;
+
+}
+}
 }
