@@ -43,6 +43,8 @@
         "vector": "c",
         "__debug": "c",
         "__mutex_base": "c",
-        "concepts": "c"
+        "concepts": "c",
+        "stdbool.h": "c",
+        "structs.h": "c"
     }
 }

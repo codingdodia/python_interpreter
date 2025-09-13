@@ -1,5 +1,7 @@
 #ifndef STRUCTS_H
 #define STRUCTS_H
+#define MAX_CMD_LEN 100
+#define VARS_MAX 100
 
 typedef union
 {
